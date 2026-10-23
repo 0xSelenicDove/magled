@@ -1,0 +1,10 @@
+# 构建产物
+build/
+dist/
+
+# macOS
+.DS_Store
+
+# Xcode 本地文件
+*.xcodeproj
+*.xcuserstate
