@@ -9,3 +9,10 @@ guard let before = LedSock.send("mode"), before.ok,
 }
 precondition(before.payload == after.payload, "读取灯色改变了所选模式")
 print("PASS: 模式=\(LEDModeText.current(selected))，灯色=\(LEDModeText.colour(colour))，两者独立")
+let started = Date()
+for _ in 0..<4 {
+    precondition(LedSock.send("ping")?.ok == true, "守护未响应")
+}
+let elapsed = Date().timeIntervalSince(started)
+precondition(elapsed < 2, "连续请求存在固定等待：\(elapsed) 秒")
+print(String(format: "PASS: 四次连续请求 %.3f 秒", elapsed))

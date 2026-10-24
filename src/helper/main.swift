@@ -213,8 +213,6 @@ while !stopFlag {
             }
         }
     }
-    // allow signal handler to interrupt select
-    usleep(1_000_000)
 }
 
 log("helper: shutting down")

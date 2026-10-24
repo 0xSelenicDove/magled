@@ -14,7 +14,7 @@ let kLastModeKey = "LastMode"
 final class MagLEDController: NSObject, NSMenuDelegate {
     var statusItem: NSStatusItem!
     var menu: NSMenu!
-    var sMC: SMC.Client?
+    let helperQueue = DispatchQueue(label: "com.atstudio.magled.communication", qos: .userInitiated)
 
     // menu item references
     var statusItem2: NSMenuItem!
@@ -136,41 +136,32 @@ final class MagLEDController: NSObject, NSMenuDelegate {
 
     // ---- state I/O ----
 
-    func readCurrent() -> UInt8? {
-        if helperUp, let r = LedSock.send("get"), r.ok, let v = UInt8(r.payload, radix: 16) {
-            return v
+    // 所有 socket / SMC 访问在串行后台队列执行，仅在主线程更新 UI。
+    func writeMode(_ value: UInt8, completion: @escaping (Bool) -> Void) {
+        helperQueue.async {
+            let reply = LedSock.send("set \(String(format: "%02x", value))")
+            DispatchQueue.main.async { completion(reply?.ok == true) }
         }
-        if SMC.isLEDKeySupported() {
-            if sMC == nil { sMC = try? SMC.Client() }
-            if let c = sMC { return try? c.readByte(SMC.magSafeLEDKey) }
-        }
-        return nil
-    }
-
-    func writeCurrent(_ v: UInt8) -> Bool {
-        guard helperUp, let r = LedSock.send("set \(String(format: "%02x", v))"), r.ok else {
-            return false
-        }
-        return true
     }
 
     func refresh() {
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.helperUp = LedSock.helperRunning()
-            self.supported = SMC.isLEDKeySupported()
-            // 模式来自守护保存的目标值；硬件读回值只用于显示实际灯色。
-            if self.helperUp, let r = LedSock.send("mode"), r.ok,
-               let mode = UInt8(r.payload, radix: 16) {
-                self.selectedMode = mode
+        helperQueue.async { [weak self] in
+            let up = LedSock.helperRunning()
+            let supported = SMC.isLEDKeySupported()
+            let mode = up ? LedSock.send("mode") : nil
+            let colour = up ? LedSock.send("get") : nil
+            let selected = mode?.ok == true ? UInt8(mode!.payload, radix: 16) : nil
+            let actual = colour?.ok == true ? UInt8(colour!.payload, radix: 16) : (try? SMC.readByte(SMC.magSafeLEDKey))
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.helperUp = up
+                self.supported = supported
+                if let selected { self.selectedMode = selected }
+                self.actualColour = actual
+                self.rebuildMenu()
+                if self.nightEnabled { self.tick() }
             }
-            self.actualColour = self.readCurrent()
-            self.rebuildMenu()
-            if self.nightEnabled { self.tick() }
         }
-        refreshWorkItem?.cancel()
-        refreshWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
     }
 
     func rebuildMenu() {
@@ -241,15 +232,18 @@ final class MagLEDController: NSObject, NSMenuDelegate {
             installHelper()
             return
         }
-        let ok = writeCurrent(v)
-        if ok {
-            selectedMode = v
-            UserDefaults.standard.set(String(format: "%02x", v), forKey: kLastModeKey)
-            nightApplied = false
+        statusItem2.title = "正在设置…"
+        writeMode(v) { [weak self] ok in
+            guard let self else { return }
+            if ok {
+                self.selectedMode = v
+                UserDefaults.standard.set(String(format: "%02x", v), forKey: kLastModeKey)
+                self.nightApplied = false
+            }
+            self.rebuildMenu()
+            self.flash(title: ok ? "已\(title)" : "设置失败 — 守护异常？")
+            self.refresh()
         }
-        flash(title: ok ? "已\(title)" : "设置失败 — 守护异常？")
-        rebuildMenu()
-        refresh()
     }
 
     func flash(title: String) {
@@ -265,12 +259,8 @@ final class MagLEDController: NSObject, NSMenuDelegate {
         nightEnabled.toggle()
         itemNight.state = nightEnabled ? .on : .off
         if nightEnabled { tick() } else {
-            // restore to system when disabling
-            if helperUp, writeCurrent(0) {
-                selectedMode = 0
-                UserDefaults.standard.set("00", forKey: kLastModeKey)
-            }
             nightApplied = false
+            if helperUp { applyMode(0, title: "跟随系统") }
             rebuildMenu()
         }
     }
@@ -383,11 +373,16 @@ final class MagLEDController: NSObject, NSMenuDelegate {
         guard shouldOff != nightApplied else { return }
         nightApplied = shouldOff
         let v: UInt8 = shouldOff ? 1 : 0
-        if writeCurrent(v) {
-            selectedMode = v
-            UserDefaults.standard.set(String(format: "%02x", v), forKey: kLastModeKey)
-            rebuildMenu()
-            flash(title: shouldOff ? "夜间模式：灯已关闭" : "夜间结束：恢复系统")
+        writeMode(v) { [weak self] ok in
+            guard let self else { return }
+            if ok {
+                self.selectedMode = v
+                UserDefaults.standard.set(String(format: "%02x", v), forKey: kLastModeKey)
+                self.rebuildMenu()
+                self.flash(title: shouldOff ? "夜间模式：灯已关闭" : "夜间结束：恢复系统")
+            } else {
+                self.nightApplied = !shouldOff
+            }
         }
     }
 }
