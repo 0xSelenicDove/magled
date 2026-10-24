@@ -336,7 +336,8 @@ final class MagLEDController: NSObject, NSMenuDelegate {
                     detail += "\n\n当前显示 Mac 端口信息，非线缆版本。接入线缆后自动读取其固件版本。"
                     detail += "\n“driver”为 AppleHPM 驱动版本。"
                 } else if d.channel == "CableFW" {
-                    detail += "\n\n说明: 系统 hpmdiagnose 中 Apple A2363 线缆的 bcdDevice：0x3112 显示为 3.1.12，0x3200 显示为 3.2.0。"
+                    detail = "Apple A2363 MagSafe 3 线缆\n固件版本：\(d.value)"
+                    detail += "\n\n通过系统 hpmdiagnose 读取。"
                 } else {
                     detail += "\n\n说明: SMC/IOKit 兜底渠道（原始值，未经厂商文档确认）。"
                 }
