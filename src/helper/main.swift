@@ -143,6 +143,8 @@ final class Helper {
         switch parts[0] {
         case "ping":
             return "OK 1.0"
+        case "mode":
+            return String(format: "OK %02x", persisted)
         case "get":
             if SMC.isLEDKeySupported(), let v = currentLED() {
                 return String(format: "OK %02x", v)

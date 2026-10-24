@@ -29,7 +29,8 @@ final class MagLEDController: NSObject, NSMenuDelegate {
     var itemFirmware: NSMenuItem!
     var itemAbout: NSMenuItem!
 
-    var current: UInt8 = 0
+    var selectedMode: UInt8 = 0
+    var actualColour: UInt8?
     var supported = false
     var helperUp = false
     var nightEnabled = false {
@@ -51,7 +52,7 @@ final class MagLEDController: NSObject, NSMenuDelegate {
         nightEnabled = night
         let saved = UserDefaults.standard.object(forKey: kLastModeKey) as? String
         if let s = saved, let v = UInt8(s, radix: 16), [0, 1, 3, 4].contains(v) {
-            current = v
+            selectedMode = v
         }
 
         let header = NSMenuItem(title: "MagSafe 灯", action: nil, keyEquivalent: "")
@@ -158,7 +159,12 @@ final class MagLEDController: NSObject, NSMenuDelegate {
             guard let self else { return }
             self.helperUp = LedSock.helperRunning()
             self.supported = SMC.isLEDKeySupported()
-            if let v = self.readCurrent() { self.current = v }
+            // 模式来自守护保存的目标值；硬件读回值只用于显示实际灯色。
+            if self.helperUp, let r = LedSock.send("mode"), r.ok,
+               let mode = UInt8(r.payload, radix: 16) {
+                self.selectedMode = mode
+            }
+            self.actualColour = self.readCurrent()
             self.rebuildMenu()
             if self.nightEnabled { self.tick() }
         }
@@ -185,7 +191,7 @@ final class MagLEDController: NSObject, NSMenuDelegate {
             itemGreen.isEnabled = true
             itemAmber.isEnabled = true
             titles = [
-                "当前: \(LEDModeText.current(current))",
+                "当前: \(LEDModeText.current(selectedMode))",
                 "跟随系统（默认）",
                 "关闭灯光",
                 "常亮绿",
@@ -196,15 +202,15 @@ final class MagLEDController: NSObject, NSMenuDelegate {
             itemGreen.title = titles[3]
             itemAmber.title = titles[4]
             if helperUp {
-                statusItem2.title = "当前: \(LEDModeText.current(current))"
+                statusItem2.title = "模式: \(LEDModeText.current(selectedMode)) · 灯色: \(LEDModeText.colour(actualColour))"
             } else {
-                statusItem2.title = "当前: \(LEDModeText.current(current))（守护离线，重启后不保持）"
+                statusItem2.title = "当前: \(LEDModeText.current(selectedMode))（守护离线，重启后不保持）"
             }
         }
 
         let states: [(NSMenuItem, UInt8)] = [(itemSystem, 0), (itemOff, 1), (itemGreen, 3), (itemAmber, 4)]
         for (item, v) in states where supported {
-            item.state = (current == v) ? .on : .off
+            item.state = (selectedMode == v) ? .on : .off
         }
         itemNight.state = nightEnabled ? .on : .off
         itemHelperStatus.title = helperUp ? "后台守护: 运行中 ✓" : "后台守护: 未安装"
@@ -213,7 +219,7 @@ final class MagLEDController: NSObject, NSMenuDelegate {
     }
 
     func updateIcon() {
-        let off = !supported || current == 1
+        let off = !supported || actualColour == 1
         let symbol = off ? "lightbulb.slash" : "lightbulb.fill"
         let img = NSImage(systemSymbolName: symbol, accessibilityDescription: "MagSafe LED")
             ?? NSImage(systemSymbolName: "circle", accessibilityDescription: nil)
@@ -235,10 +241,12 @@ final class MagLEDController: NSObject, NSMenuDelegate {
             installHelper()
             return
         }
-        current = v
-        UserDefaults.standard.set(String(format: "%02x", v), forKey: kLastModeKey)
-        nightApplied = false
         let ok = writeCurrent(v)
+        if ok {
+            selectedMode = v
+            UserDefaults.standard.set(String(format: "%02x", v), forKey: kLastModeKey)
+            nightApplied = false
+        }
         flash(title: ok ? "已\(title)" : "设置失败 — 守护异常？")
         rebuildMenu()
         refresh()
@@ -258,7 +266,10 @@ final class MagLEDController: NSObject, NSMenuDelegate {
         itemNight.state = nightEnabled ? .on : .off
         if nightEnabled { tick() } else {
             // restore to system when disabling
-            if helperUp { _ = writeCurrent(0); current = 0 }
+            if helperUp, writeCurrent(0) {
+                selectedMode = 0
+                UserDefaults.standard.set("00", forKey: kLastModeKey)
+            }
             nightApplied = false
             rebuildMenu()
         }
@@ -355,14 +366,7 @@ final class MagLEDController: NSObject, NSMenuDelegate {
     @objc func quit() { NSApplication.shared.terminate(nil) }
 
     @objc func handleWake() {
-        // SMC can reset on wake; re-assert current mode if the helper is up
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-            guard let self, self.helperUp, self.supported else { return }
-            if self.nightEnabled && !inNight() { self.nightApplied = false }
-            if self.current != 0 {
-                _ = self.writeCurrent(self.current)
-            }
-        }
+        // 守护负责恢复所选模式；不能将硬件当前灯色重新写成强制常亮。
         self.refresh()
     }
 
@@ -380,7 +384,8 @@ final class MagLEDController: NSObject, NSMenuDelegate {
         nightApplied = shouldOff
         let v: UInt8 = shouldOff ? 1 : 0
         if writeCurrent(v) {
-            current = v
+            selectedMode = v
+            UserDefaults.standard.set(String(format: "%02x", v), forKey: kLastModeKey)
             rebuildMenu()
             flash(title: shouldOff ? "夜间模式：灯已关闭" : "夜间结束：恢复系统")
         }
