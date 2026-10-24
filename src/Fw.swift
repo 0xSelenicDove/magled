@@ -282,6 +282,22 @@ enum Fw {
         return dict["CFBundleShortVersionString"] as? String
     }
 
+    /// 仅读取 MagSafe 端口连接状态，不依赖可能残留的 hpmdiagnose 记录。
+    static func isCableConnected() -> Bool {
+        var iterator: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault,
+                IOServiceMatching("AppleHPMInterfaceType11"), &iterator) == kIOReturnSuccess else { return false }
+        defer { IOObjectRelease(iterator) }
+        while true {
+            let entry = IOIteratorNext(iterator)
+            guard entry != 0 else { break }
+            defer { IOObjectRelease(entry) }
+            let active = IORegistryEntryCreateCFProperty(entry, "ConnectionActive" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
+            if active as? Bool == true { return true }
+        }
+        return false
+    }
+
     // MARK: 线缆固件（hpmdiagnose 0x49 行，只读）
     // 与实测 awk 命令一致：bcdDevice = byte[10]:byte[9]，PID = byte[13]:byte[12]。
     // 仅识别 Apple A2363（VID 05ac / PID 4078），避免把其他端口状态当作线缆版本。
@@ -298,6 +314,7 @@ enum Fw {
 
     /// 所有已识别的 A2363 线缆版本；未连接、格式异常或未知设备返回空数组。
     static func cableFirmware() -> [FwSource] {
+        guard isCableConnected() else { return [] }
         let task = Process()
         task.launchPath = "/usr/bin/hpmdiagnose"
         let pipe = Pipe()
@@ -308,10 +325,11 @@ enum Fw {
         task.waitUntilExit()
         guard task.terminationStatus == 0,
               let text = String(data: data, encoding: .utf8) else { return [] }
-        return cableFirmware(from: text)
+        return cableFirmware(from: text, connected: isCableConnected())
     }
 
-    static func cableFirmware(from text: String) -> [FwSource] {
+    static func cableFirmware(from text: String, connected: Bool = true) -> [FwSource] {
+        guard connected else { return [] }
         var out: [FwSource] = []
         var port = ""
         for line in text.split(separator: "\n") {

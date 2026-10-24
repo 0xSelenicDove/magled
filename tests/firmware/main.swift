@@ -8,6 +8,8 @@ func record(_ bytes: [UInt8]) -> String {
 }
 func version(_ bytes: [UInt8]) -> String? { Fw.cableFirmware(from: record(bytes)).first?.value }
 assert(version(prefix) == "3.2.0")
+assert(Fw.cableFirmware(from: record(prefix), connected: false).isEmpty)
+assert(Fw.cableFirmware(from: record(prefix), connected: true).first?.value == "3.2.0")
 var old = prefix; old[9] = 0x12; old[10] = 0x31
 assert(version(old) == "3.1.12")
 var invalid = prefix; invalid[9] = 0xfa

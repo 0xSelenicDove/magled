@@ -36,6 +36,9 @@ final class MagLEDController: NSObject, NSMenuDelegate {
         didSet { UserDefaults.standard.set(nightEnabled, forKey: kNightPrefKey) }
     }
     var nightApplied = false   // whether "night off" is currently in effect by the schedule
+    var firmwareTimer: Timer?
+    var firmwareConnected: Bool?
+    var firmwareGeneration = 0
     var timer: Timer?
     var refreshWorkItem: DispatchWorkItem?
 
@@ -122,15 +125,34 @@ final class MagLEDController: NSObject, NSMenuDelegate {
         tick()
         refresh()
 
-        // 固件信息（只读，IOKit 无需 root）——后台读一次
+        // 连接状态检查很轻；只在接入时运行较慢的固件查询。
+        firmwareTimer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
+            self?.refreshFirmware()
+        }
+        RunLoop.main.add(firmwareTimer!, forMode: .common)
+        refreshFirmware()
+    }
+
+    func refreshFirmware(force: Bool = false) {
+        let connected = Fw.isCableConnected()
+        guard force || firmwareConnected != connected else { return }
+        firmwareConnected = connected
+        firmwareGeneration += 1
+        let generation = firmwareGeneration
+        itemFirmware.title = connected ? "线缆固件: 读取中…" : "线缆未连接（查看端口信息）"
+        guard connected else { return }
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let d = Fw.display()
-            let kind = Fw.kind(d)
-            let short = d?.short ?? "未检测到"
             DispatchQueue.main.async {
-                self?.itemFirmware.title = "\(kind): \(short)"
+                guard let self, self.firmwareGeneration == generation else { return }
+                guard Fw.isCableConnected() else { self.refreshFirmware(); return }
+                self.itemFirmware.title = "\(Fw.kind(d)): " + (d?.short ?? "未检测到")
             }
         }
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        refreshFirmware()
     }
 
     // ---- state I/O ----
@@ -304,10 +326,9 @@ final class MagLEDController: NSObject, NSMenuDelegate {
     }
 
     @objc func showFirmware() {
-        itemFirmware.title = "固件: 读取中…"
+        refreshFirmware(force: true)
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let d = Fw.display()
-            let kind = Fw.kind(d)
             var detail: String
             if let d = d {
                 detail = d.text
@@ -329,7 +350,7 @@ final class MagLEDController: NSObject, NSMenuDelegate {
                 alert.informativeText = detail
                 alert.addButton(withTitle: "好")
                 alert.runModal()
-                self?.itemFirmware.title = "\(kind): " + (d?.short ?? "未检测到")
+                self?.refreshFirmware(force: true)
             }
         }
     }
@@ -355,6 +376,7 @@ final class MagLEDController: NSObject, NSMenuDelegate {
     @objc func quit() { NSApplication.shared.terminate(nil) }
 
     @objc func handleWake() {
+        refreshFirmware(force: true)
         // SMC can reset on wake; re-assert current mode if the helper is up
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
             guard let self, self.helperUp, self.supported else { return }
