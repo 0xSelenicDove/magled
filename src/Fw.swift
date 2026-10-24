@@ -22,7 +22,7 @@
 //    线缆里的 USB 2.0 控制器的 bcdDevice，MacRumors 评论区实测方法；被动设备该行全 0。
 // b) 电源口固件（IOKit "FW Version"，4 字节）—— HPM 电源口控制器内部固件，
 //    Apple 未公布编码格式（M5 Studio 00 14 31 00 / M5 Pro 00 82 20 00 / M5 Air 00 02 31 00，
-//    同机各口恒同值）→ 展示原始字节，配社区对照表（00 63 30 00 曾被对应到 3.1.12）。
+//    同机各口可同值）→ 仅展示原始字节，不推断线缆版本或更新状态。
 // c) AppleHPM 驱动版本（Info.plist，如 3.4.4）—— 驱动自身版本，辅助参考。
 
 import Foundation
@@ -273,14 +273,7 @@ enum Fw {
     // MARK: 电源口固件（AppleHPM 驱动，Apple Silicon 电源口管理，只读）
     // “FW Version”（4 字节）= HPM 电源口控制器内部固件。Apple 未公布编码格式：
     // 实测 M5 Studio 00 14 31 00、M5 Pro 00 82 20 00、M5 Air 00 02 31 00，同机各口恒同值，
-    // 各家 M5 机器互不相同 → 不猜语义版本，展示原始字节 + 社区对照表。
-
-    /// 社区对照表（原始 hex → 已知含义）。来自 2026-10 MacRumors 讨论串：
-    /// 00 63 30 00 对应 MagSafe 3 线缆固件 3.1.12（旧版）；
-    /// 若值已变（苹果 3 月推送更新），线缆侧应为 3.2.0+ —— 以 hpmdiagnose 渠道为准。
-    static let knownPortFw: [String: String] = [
-        "00633000": "00 63 30 00（社区对照 = 线缆固件 3.1.12 旧版）",
-    ]
+    // 各家 M5 机器互不相同 → 只展示原始字节，不推断线缆固件版本。
 
     /// AppleHPM.kext 驱动版本（语义化版本，如 3.4.4；读 Info.plist，不碰驱动）
     static func driverVersion() -> String? {
@@ -387,7 +380,6 @@ enum Fw {
             var extras = ["type=" + ptype]
             if let dv = driverVersion() { extras.append("driver " + dv) }
             extras.append(active ? "cable=已接入" : "cable=未接入")
-            if let known = knownPortFw[rawHex] { extras.append(known) }
             let src = FwSource(channel: "AppleHPM", node: desc, label: "FW Version",
                                value: "<" + rawHex + ">", strength: rank,
                                extra: extras.joined(separator: "  "))
@@ -446,7 +438,7 @@ enum Fw {
     // MARK: 展示选择
 
     /// 展示候选：
-    /// 1) AppleHPM “FW Version” 原始字节（ioreg 同款 <00633000> 格式，社区对照表注在 extra）；
+    /// 1) AppleHPM “FW Version” 原始字节（ioreg 同款 hex 格式；不推断线缆固件版本）；
     /// 2) hpmdiagnose 0x49 线缆 bcd（注册表读不到时的交叉验证来源）；
     /// 3) IOKit 兜底扫描（只认版本类属性，绝不把节点名/Description 当版本号 —— 旧版 bug）。
     static func iokitDisplay() -> FwSource? {

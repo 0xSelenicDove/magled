@@ -312,9 +312,9 @@ final class MagLEDController: NSObject, NSMenuDelegate {
             if let d = d {
                 detail = d.text
                 if d.channel == "AppleHPM" {
-                    detail += "\n\n说明: “FW Version”（ioreg 原始字节）= 电源口控制器固件，同机各口同值。"
-                    detail += "社区对照: <00633000> = MagSafe 3 线缆固件旧版 3.1.12；"
-                    detail += "出现其他值 = 苹果已推送线缆固件更新（3.2.0 或更新）。"
+                    detail += "\n\n说明: “FW Version” 是 Mac 电源口控制器报告的原始字节，不是 MagSafe 线缆固件版本。"
+                    detail += "\nApple 未公开此字段的版本编码，不能据此判断线缆是否已更新。"
+                    detail += "\n“driver” 是 AppleHPM 驱动版本，也不是线缆固件版本。"
                 } else if d.channel == "CableFW" {
                     detail += "\n\n说明: 系统 hpmdiagnose 0x49 行的线缆 USB 控制器 bcdDevice。"
                 } else {
@@ -325,7 +325,7 @@ final class MagLEDController: NSObject, NSMenuDelegate {
             }
             DispatchQueue.main.async {
                 let alert = NSAlert()
-                alert.messageText = "MagSafe 3 固件信息"
+                alert.messageText = "MagSafe 3 端口与固件信息"
                 alert.informativeText = detail
                 alert.addButton(withTitle: "好")
                 alert.runModal()
