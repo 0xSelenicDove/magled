@@ -316,7 +316,7 @@ final class MagLEDController: NSObject, NSMenuDelegate {
                     detail += "\nApple 未公开此字段的版本编码，不能据此判断线缆是否已更新。"
                     detail += "\n“driver” 是 AppleHPM 驱动版本，也不是线缆固件版本。"
                 } else if d.channel == "CableFW" {
-                    detail += "\n\n说明: 系统 hpmdiagnose 0x49 行的线缆 USB 控制器 bcdDevice。"
+                    detail += "\n\n说明: 系统 hpmdiagnose 中 Apple A2363 线缆的 bcdDevice：0x3112 显示为 3.1.12，0x3200 显示为 3.2.0。"
                 } else {
                     detail += "\n\n说明: SMC/IOKit 兜底渠道（原始值，未经厂商文档确认）。"
                 }
