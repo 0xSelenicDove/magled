@@ -67,7 +67,8 @@ final class Helper {
             try sMC!.writeByte(SMC.magSafeLEDKey, v)
             Thread.sleep(forTimeInterval: 0.05)
             let back = (try? sMC!.readByte(SMC.magSafeLEDKey)) ?? 0xFF
-            if back != v {
+            // System mode releases control; firmware may immediately report its own colour.
+            if v != 0 && back != v {
                 log("helper: WARN write 0x\(String(v, radix: 16)) but read back 0x\(String(back, radix: 16))")
                 return false
             }
