@@ -146,7 +146,7 @@ final class MagLEDController: NSObject, NSMenuDelegate {
         }
     }
 
-    func menuWillOpen(_ menu: NSMenu) {
+    func menuNeedsUpdate(_ menu: NSMenu) {
         refresh()
     }
 
