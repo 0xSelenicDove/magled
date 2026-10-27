@@ -31,6 +31,7 @@ final class MagLEDController: NSObject, NSMenuDelegate {
 
     var selectedMode: UInt8 = 0
     var actualColour: UInt8?
+    var refreshingStatus = false
     var supported = false
     var helperUp = false
     var nightEnabled = false {
@@ -117,9 +118,10 @@ final class MagLEDController: NSObject, NSMenuDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(handleWake), name: NSWorkspace.didWakeNotification, object: nil)
 
         updateLoginCheck()
-        timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            self?.tick()
+        timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
+            self?.refresh()
         }
+        RunLoop.main.add(timer!, forMode: .common)
         tick()
         refresh()
 
@@ -144,7 +146,14 @@ final class MagLEDController: NSObject, NSMenuDelegate {
         }
     }
 
+    func menuWillOpen(_ menu: NSMenu) {
+        refresh()
+    }
+
     func refresh() {
+        // 避免守护响应缓慢时定时查询排队堆积。
+        guard !refreshingStatus else { return }
+        refreshingStatus = true
         helperQueue.async { [weak self] in
             let up = LedSock.helperRunning()
             let supported = SMC.isLEDKeySupported()
@@ -154,6 +163,7 @@ final class MagLEDController: NSObject, NSMenuDelegate {
             let actual = colour?.ok == true ? UInt8(colour!.payload, radix: 16) : (try? SMC.readByte(SMC.magSafeLEDKey))
             DispatchQueue.main.async {
                 guard let self else { return }
+                self.refreshingStatus = false
                 self.helperUp = up
                 self.supported = supported
                 if let selected { self.selectedMode = selected }
